@@ -1,42 +1,52 @@
 import { ethers } from "hardhat";
 
+/**
+ * Fund a target account from the pre-funded Alith dev account.
+ *
+ * On the revive-dev-node, Substrate (sr25519) accounts and Ethereum (secp256k1)
+ * accounts live in different address spaces.  The dev-node genesis pre-funds
+ * five well-known Ethereum accounts (Alith, Baltathar, Charleth, Dorothy, Ethan)
+ * whose AccountId32 = H160 ++ 0xEE×12.
+ *
+ * The hardhat `local` network is configured with Alith's key, so ethers.getSigners()[0]
+ * is Alith.
+ *
+ * Usage:
+ *   npx hardhat run scripts/fund_account.ts --network local
+ *   TARGET=0x... npx hardhat run scripts/fund_account.ts --network local
+ */
 async function main() {
-    // Alice's account (pre-funded in dev mode)
-    const alicePrivateKey = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
-    const alice = new ethers.Wallet(alicePrivateKey, ethers.provider);
-    
-    // Test account (from hardhat config)
-    const testAccountPrivateKey = "0x99b3c12287537e38c90a9219d4cb074a89a16e9cdb20bf85728ebd97c343e342";
-    const testAccount = new ethers.Wallet(testAccountPrivateKey, ethers.provider);
-    
-    console.log("Alice address:", alice.address);
-    console.log("Test account address:", testAccount.address);
-    
+    const [alith] = await ethers.getSigners();
+    console.log("Alith (sender):", alith.address);
+
+    // Determine target — env var or Baltathar (2nd dev account)
+    const baltatharKey = "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b";
+    const target = process.env.TARGET
+        ? process.env.TARGET
+        : new ethers.Wallet(baltatharKey).address;
+
     // Check balances
-    const aliceBalance = await ethers.provider.getBalance(alice.address);
-    const testBalance = await ethers.provider.getBalance(testAccount.address);
-    
-    console.log(`Alice balance: ${ethers.formatEther(aliceBalance)} DEV`);
-    console.log(`Test account balance: ${ethers.formatEther(testBalance)} DEV`);
-    
-    // Send 100 DEV to test account
-    const amount = ethers.parseEther("100");
-    console.log(`\nSending ${ethers.formatEther(amount)} DEV to test account...`);
-    
-    const tx = await alice.sendTransaction({
-        to: testAccount.address,
+    const alithBalance = await ethers.provider.getBalance(alith.address);
+    const targetBalance = await ethers.provider.getBalance(target);
+
+    console.log(`Alith balance:  ${ethers.formatEther(alithBalance)} DEV`);
+    console.log(`Target (${target}): ${ethers.formatEther(targetBalance)} DEV`);
+
+    // Send 1000 DEV
+    const amount = ethers.parseEther("1000");
+    console.log(`\nSending ${ethers.formatEther(amount)} DEV to ${target}...`);
+
+    const tx = await alith.sendTransaction({
+        to: target,
         value: amount,
-        gasPrice: 20000000000,
-        gasLimit: 21000
     });
-    
+
     console.log("Transaction hash:", tx.hash);
     await tx.wait();
     console.log("Transaction confirmed!");
-    
-    // Check new balance
-    const newBalance = await ethers.provider.getBalance(testAccount.address);
-    console.log(`New test account balance: ${ethers.formatEther(newBalance)} DEV`);
+
+    const newBalance = await ethers.provider.getBalance(target);
+    console.log(`New target balance: ${ethers.formatEther(newBalance)} DEV`);
 }
 
 main().catch(console.error);

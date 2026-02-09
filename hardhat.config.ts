@@ -25,7 +25,9 @@ const config: HardhatUserConfig = {
     local: {
         url: "http://127.0.0.1:8545",
         chainId: 420420420,
-        accounts: ["0x99b3c12287537e38c90a9219d4cb074a89a16e9cdb20bf85728ebd97c343e342"],
+        // Alith — pre-funded dev account on revive-dev-node
+        // H160: 0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac
+        accounts: ["0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"],
         gasPrice: 50000000000, // 50 gwei (matches base fee)
         gas: 6000000,
         timeout: 60000,

@@ -65,7 +65,13 @@ ajuna-tokenswap/
 │   ├── setup_node.sh            # Build revive-dev-node
 │   ├── run_local_node.sh        # Run local PVM node
 │   ├── deploy_testnet.sh        # Deploy to testnet
+│   ├── deploy_mock_foreign_asset.ts # Deploy mock FA for local testing
+│   ├── e2e_test.ts              # E2E integration test script
+│   ├── e2e_local.sh             # Full automated E2E pipeline
+│   ├── lookup_ajun_asset.ts     # Query AJUN asset on live chain
 │   └── serve_ui.sh              # Serve the UIs
+├── deployments.config.ts        # Multi-environment configuration
+├── chopsticks.yml               # Chopsticks fork config (AssetHub)
 ├── app.html                     # User-facing swap dApp (MetaMask)
 ├── test-ui.html                 # Developer testing interface
 ├── hardhat.config.ts            # Hardhat configuration
@@ -147,6 +153,110 @@ The suite covers:
 - **Rescue**: Token rescue works; locked foreign asset cannot be rescued; owner-only
 - **Foreign Asset Update**: Mutable address with owner-only guard
 - **Multi-User**: Interleaved operations maintain 1:1 backing invariant
+
+### Testing Strategy: Local → Testnet → Production
+
+The project uses a layered testing approach because the local dev node and production AssetHub have different runtime capabilities:
+
+| Level | Environment | Foreign Asset | Precompile | Best For |
+|-------|-------------|--------------|------------|----------|
+| **1. Unit** | Hardhat in-memory EVM | Mock ERC20 | No | Contract logic, 29 tests |
+| **2. PVM Integration** | Local `revive-dev-node` | Mock ERC20 | No | PVM bytecode compat, gas |
+| **3. Chopsticks Fork** | Forked AssetHub state | **Real** | **Yes** | Production-like testing |
+| **4. Testnet** | Polkadot Hub TestNet | **Real** (via XCM) | **Yes** | Full production path |
+
+#### Why the levels differ
+
+The local `revive-dev-node` runtime does **not** include `pallet-assets` or `pallet-foreign-assets`. It only has: System, Timestamp, Balances, Sudo, TransactionPayment, and Revive — with **zero precompiles** registered. This means there is no real ERC20 precompile address on the local dev node.
+
+For Levels 1 and 2, we deploy a second `AjunaERC20` contract as a **mock foreign asset**. This exercises all the Solidity logic identically (ERC20 `approve` → `transferFrom`) since the precompile's ERC20 interface is the same as a standard ERC20.
+
+For Levels 3 and 4, the real `pallet-assets` precompile is available at a deterministic address.
+
+#### Precompile Address Calculation
+
+Each asset on AssetHub gets a deterministic ERC20 precompile address:
+
+```
+Address (20 bytes) = [assetId (4B BE)] [zeros (12B)] [prefix (2B BE)] [0x0000]
+```
+
+- Native assets prefix: `0x0120`
+- Foreign assets prefix: `0x0220` (verify against runtime)
+- Example: Asset ID 1984 (USDT) → `0x000007C000000000000000000000000001200000`
+
+Use the helper to compute any address:
+```bash
+npx ts-node -e "import {computePrecompileAddress} from './deployments.config'; console.log(computePrecompileAddress(1984))"
+```
+
+#### Level 2: Local PVM Integration Test
+
+Full automated E2E pipeline on the local dev node:
+
+```bash
+# 1. Start the node (in a separate terminal)
+./scripts/run_local_node.sh
+
+# 2. Run the full pipeline (deploy mock FA + contracts + E2E test)
+./scripts/e2e_local.sh
+```
+
+Or step-by-step:
+```bash
+npx hardhat run scripts/fund_account.ts --network local
+npx hardhat run scripts/deploy_mock_foreign_asset.ts --network local
+npx hardhat ignition deploy ./ignition/modules/AjunaWrapper.ts --network local \
+  --parameters '{"AjunaWrapperModule": {"foreignAssetAddress": "<MOCK_FA_ADDRESS>"}}'
+WRAPPER_ADDRESS=0x... ERC20_ADDRESS=0x... FOREIGN_ASSET=0x... \
+  npx hardhat run scripts/e2e_test.ts --network local
+```
+
+#### Level 3: Chopsticks (Fork Real AssetHub)
+
+[Chopsticks](https://github.com/AcalaNetwork/chopsticks) forks a live chain's state, giving you the **real runtime** including all registered foreign assets and precompile addresses.
+
+```bash
+# 1. Start Chopsticks fork of AssetHub
+npx @nickvdende/chopsticks --config=chopsticks.yml
+
+# 2. Start the eth-rpc adapter (points to Chopsticks WS at port 8000)
+./polkadot-sdk/target/release/eth-rpc --node-rpc-url ws://127.0.0.1:8000
+
+# 3. Fund your test account via dev_setStorage (see chopsticks.yml for examples)
+
+# 4. Deploy and test
+npx hardhat ignition deploy ./ignition/modules/AjunaWrapper.ts --network local \
+  --parameters '{"AjunaWrapperModule": {"foreignAssetAddress": "<REAL_PRECOMPILE_ADDRESS>"}}'
+```
+
+#### Level 4: Testnet Deployment
+
+```bash
+# 1. Look up AJUN foreign asset on testnet
+npx ts-node scripts/lookup_ajun_asset.ts wss://westend-asset-hub-rpc.polkadot.io
+
+# 2. Deploy
+./scripts/deploy_testnet.sh
+
+# 3. E2E test
+WRAPPER_ADDRESS=0x... ERC20_ADDRESS=0x... FOREIGN_ASSET=0x... \
+  npx hardhat run scripts/e2e_test.ts --network polkadotTestnet
+```
+
+#### Production Preparation Checklist
+
+Before going to mainnet, verify:
+
+- [ ] **AJUN is registered** as a foreign asset on AssetHub (query with `scripts/lookup_ajun_asset.ts`)
+- [ ] **Asset ID is known** and precompile address computed
+- [ ] **Decimals match** — AJUN native has 12 decimals, `AjunaERC20` must use 12
+- [ ] **E2E passed on Chopsticks** with real precompile address
+- [ ] **E2E passed on testnet** with real XCM-transferred AJUN
+- [ ] **Existential Deposit** sent to Wrapper contract (1–2 DOT)
+- [ ] **Admin roles** transferred to multisig and deployer role renounced
+- [ ] **`app.html` CONFIG** updated with final contract addresses
+- [ ] **dApp tested** via MetaMask on the target network
 
 ### User-Facing Swap dApp (`app.html`)
 

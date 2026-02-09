@@ -1,0 +1,64 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Chopsticks Configuration — Fork Polkadot AssetHub             ║
+# ║                                                                ║
+# ║  Chopsticks forks a live chain at its latest block, giving     ║
+# ║  you the REAL runtime state: registered foreign assets,        ║
+# ║  precompile addresses, account balances, etc.                  ║
+# ║                                                                ║
+# ║  This is the closest you can get to production without         ║
+# ║  deploying to mainnet.                                         ║
+# ║                                                                ║
+# ║  Install & run:                                                ║
+# ║    npx @nickvdende/chopsticks --config=chopsticks.yml          ║
+# ║                                                                ║
+# ║  Then in a separate terminal, start the eth-rpc adapter:       ║
+# ║    ./polkadot-sdk/target/release/eth-rpc --dev                 ║
+# ║    (or: eth-rpc --node-rpc-url ws://127.0.0.1:8000)           ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+# Fork Polkadot AssetHub mainnet
+endpoint: wss://polkadot-asset-hub-rpc.polkadot.io
+
+# Substrate WS port (Chopsticks serves here)
+port: 8000
+
+# Optional: block number to fork at (omit for latest)
+# block: 12345678
+
+# ── Mock overrides ──────────────────────────────────────────────────
+# Use dev_setStorage to fund test accounts AFTER startup.
+#
+# Example (run via polkadot.js apps or wscat):
+#
+#   // Fund Alice-EVM (H160) with DOT for gas
+#   // Alice substrate well-known: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+#   // Alice EVM (from sr25519 seed): 0xd43593c715fdd31c61141abd04a99fd6822c8558
+#
+#   // Give a test address some DOT:
+#   await api.rpc('dev_setStorage', {
+#     System: {
+#       Account: [
+#         [
+#           ['<your_h160_address>'],
+#           { data: { free: '100000000000000' } }  // 100 DOT (12 decimals)
+#         ]
+#       ]
+#     }
+#   });
+#
+#   // Give a test address some AJUN foreign asset tokens:
+#   // (Need to know the correct storage key for foreignAssets pallet)
+#   await api.rpc('dev_setStorage', {
+#     ForeignAssets: {
+#       Account: [
+#         [
+#           [{ parents: 1, interior: { X1: [{ Parachain: 2051 }] } }, '<your_h160_address>'],
+#           { balance: '10000000000000000' }  // 10,000 AJUN (12 decimals)
+#         ]
+#       ]
+#     }
+#   });
+
+# ── Runtime log verbosity ──────────────────────────────────────────
+# Uncomment for verbose logging:
+# runtime-log-level: 5
