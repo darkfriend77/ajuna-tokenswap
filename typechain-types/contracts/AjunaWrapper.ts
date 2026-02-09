@@ -29,14 +29,26 @@ export interface AjunaWrapperInterface extends Interface {
       | "deposit"
       | "foreignAsset"
       | "owner"
+      | "pause"
+      | "paused"
       | "renounceOwnership"
+      | "rescueToken"
       | "token"
       | "transferOwnership"
+      | "unpause"
+      | "updateForeignAsset"
       | "withdraw"
   ): FunctionFragment;
 
   getEvent(
-    nameOrSignatureOrTopic: "Deposited" | "OwnershipTransferred" | "Withdrawn"
+    nameOrSignatureOrTopic:
+      | "Deposited"
+      | "ForeignAssetUpdated"
+      | "OwnershipTransferred"
+      | "Paused"
+      | "TokenRescued"
+      | "Unpaused"
+      | "Withdrawn"
   ): EventFragment;
 
   encodeFunctionData(
@@ -48,13 +60,24 @@ export interface AjunaWrapperInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "owner", values?: undefined): string;
+  encodeFunctionData(functionFragment: "pause", values?: undefined): string;
+  encodeFunctionData(functionFragment: "paused", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "renounceOwnership",
     values?: undefined
   ): string;
+  encodeFunctionData(
+    functionFragment: "rescueToken",
+    values: [AddressLike, AddressLike, BigNumberish]
+  ): string;
   encodeFunctionData(functionFragment: "token", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "transferOwnership",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(functionFragment: "unpause", values?: undefined): string;
+  encodeFunctionData(
+    functionFragment: "updateForeignAsset",
     values: [AddressLike]
   ): string;
   encodeFunctionData(
@@ -68,13 +91,24 @@ export interface AjunaWrapperInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "owner", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "pause", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "paused", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "renounceOwnership",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "rescueToken",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "token", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "transferOwnership",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(functionFragment: "unpause", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "updateForeignAsset",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "withdraw", data: BytesLike): Result;
@@ -93,12 +127,67 @@ export namespace DepositedEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
+export namespace ForeignAssetUpdatedEvent {
+  export type InputTuple = [oldAddress: AddressLike, newAddress: AddressLike];
+  export type OutputTuple = [oldAddress: string, newAddress: string];
+  export interface OutputObject {
+    oldAddress: string;
+    newAddress: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
 export namespace OwnershipTransferredEvent {
   export type InputTuple = [previousOwner: AddressLike, newOwner: AddressLike];
   export type OutputTuple = [previousOwner: string, newOwner: string];
   export interface OutputObject {
     previousOwner: string;
     newOwner: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace PausedEvent {
+  export type InputTuple = [account: AddressLike];
+  export type OutputTuple = [account: string];
+  export interface OutputObject {
+    account: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace TokenRescuedEvent {
+  export type InputTuple = [
+    tokenAddress: AddressLike,
+    to: AddressLike,
+    amount: BigNumberish
+  ];
+  export type OutputTuple = [tokenAddress: string, to: string, amount: bigint];
+  export interface OutputObject {
+    tokenAddress: string;
+    to: string;
+    amount: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace UnpausedEvent {
+  export type InputTuple = [account: AddressLike];
+  export type OutputTuple = [account: string];
+  export interface OutputObject {
+    account: string;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -168,12 +257,30 @@ export interface AjunaWrapper extends BaseContract {
 
   owner: TypedContractMethod<[], [string], "view">;
 
+  pause: TypedContractMethod<[], [void], "nonpayable">;
+
+  paused: TypedContractMethod<[], [boolean], "view">;
+
   renounceOwnership: TypedContractMethod<[], [void], "nonpayable">;
+
+  rescueToken: TypedContractMethod<
+    [tokenAddress: AddressLike, to: AddressLike, amount: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
 
   token: TypedContractMethod<[], [string], "view">;
 
   transferOwnership: TypedContractMethod<
     [newOwner: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+
+  unpause: TypedContractMethod<[], [void], "nonpayable">;
+
+  updateForeignAsset: TypedContractMethod<
+    [_newForeignAsset: AddressLike],
     [void],
     "nonpayable"
   >;
@@ -194,14 +301,33 @@ export interface AjunaWrapper extends BaseContract {
     nameOrSignature: "owner"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
+    nameOrSignature: "pause"
+  ): TypedContractMethod<[], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "paused"
+  ): TypedContractMethod<[], [boolean], "view">;
+  getFunction(
     nameOrSignature: "renounceOwnership"
   ): TypedContractMethod<[], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "rescueToken"
+  ): TypedContractMethod<
+    [tokenAddress: AddressLike, to: AddressLike, amount: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
   getFunction(
     nameOrSignature: "token"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "transferOwnership"
   ): TypedContractMethod<[newOwner: AddressLike], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "unpause"
+  ): TypedContractMethod<[], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "updateForeignAsset"
+  ): TypedContractMethod<[_newForeignAsset: AddressLike], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "withdraw"
   ): TypedContractMethod<[amount: BigNumberish], [void], "nonpayable">;
@@ -214,11 +340,39 @@ export interface AjunaWrapper extends BaseContract {
     DepositedEvent.OutputObject
   >;
   getEvent(
+    key: "ForeignAssetUpdated"
+  ): TypedContractEvent<
+    ForeignAssetUpdatedEvent.InputTuple,
+    ForeignAssetUpdatedEvent.OutputTuple,
+    ForeignAssetUpdatedEvent.OutputObject
+  >;
+  getEvent(
     key: "OwnershipTransferred"
   ): TypedContractEvent<
     OwnershipTransferredEvent.InputTuple,
     OwnershipTransferredEvent.OutputTuple,
     OwnershipTransferredEvent.OutputObject
+  >;
+  getEvent(
+    key: "Paused"
+  ): TypedContractEvent<
+    PausedEvent.InputTuple,
+    PausedEvent.OutputTuple,
+    PausedEvent.OutputObject
+  >;
+  getEvent(
+    key: "TokenRescued"
+  ): TypedContractEvent<
+    TokenRescuedEvent.InputTuple,
+    TokenRescuedEvent.OutputTuple,
+    TokenRescuedEvent.OutputObject
+  >;
+  getEvent(
+    key: "Unpaused"
+  ): TypedContractEvent<
+    UnpausedEvent.InputTuple,
+    UnpausedEvent.OutputTuple,
+    UnpausedEvent.OutputObject
   >;
   getEvent(
     key: "Withdrawn"
@@ -240,6 +394,17 @@ export interface AjunaWrapper extends BaseContract {
       DepositedEvent.OutputObject
     >;
 
+    "ForeignAssetUpdated(address,address)": TypedContractEvent<
+      ForeignAssetUpdatedEvent.InputTuple,
+      ForeignAssetUpdatedEvent.OutputTuple,
+      ForeignAssetUpdatedEvent.OutputObject
+    >;
+    ForeignAssetUpdated: TypedContractEvent<
+      ForeignAssetUpdatedEvent.InputTuple,
+      ForeignAssetUpdatedEvent.OutputTuple,
+      ForeignAssetUpdatedEvent.OutputObject
+    >;
+
     "OwnershipTransferred(address,address)": TypedContractEvent<
       OwnershipTransferredEvent.InputTuple,
       OwnershipTransferredEvent.OutputTuple,
@@ -249,6 +414,39 @@ export interface AjunaWrapper extends BaseContract {
       OwnershipTransferredEvent.InputTuple,
       OwnershipTransferredEvent.OutputTuple,
       OwnershipTransferredEvent.OutputObject
+    >;
+
+    "Paused(address)": TypedContractEvent<
+      PausedEvent.InputTuple,
+      PausedEvent.OutputTuple,
+      PausedEvent.OutputObject
+    >;
+    Paused: TypedContractEvent<
+      PausedEvent.InputTuple,
+      PausedEvent.OutputTuple,
+      PausedEvent.OutputObject
+    >;
+
+    "TokenRescued(address,address,uint256)": TypedContractEvent<
+      TokenRescuedEvent.InputTuple,
+      TokenRescuedEvent.OutputTuple,
+      TokenRescuedEvent.OutputObject
+    >;
+    TokenRescued: TypedContractEvent<
+      TokenRescuedEvent.InputTuple,
+      TokenRescuedEvent.OutputTuple,
+      TokenRescuedEvent.OutputObject
+    >;
+
+    "Unpaused(address)": TypedContractEvent<
+      UnpausedEvent.InputTuple,
+      UnpausedEvent.OutputTuple,
+      UnpausedEvent.OutputObject
+    >;
+    Unpaused: TypedContractEvent<
+      UnpausedEvent.InputTuple,
+      UnpausedEvent.OutputTuple,
+      UnpausedEvent.OutputObject
     >;
 
     "Withdrawn(address,uint256)": TypedContractEvent<

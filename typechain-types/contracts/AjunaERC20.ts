@@ -31,7 +31,7 @@ export interface AjunaERC20Interface extends Interface {
       | "allowance"
       | "approve"
       | "balanceOf"
-      | "burn"
+      | "burnFrom"
       | "decimals"
       | "getRoleAdmin"
       | "grantRole"
@@ -77,7 +77,7 @@ export interface AjunaERC20Interface extends Interface {
     values: [AddressLike]
   ): string;
   encodeFunctionData(
-    functionFragment: "burn",
+    functionFragment: "burnFrom",
     values: [AddressLike, BigNumberish]
   ): string;
   encodeFunctionData(functionFragment: "decimals", values?: undefined): string;
@@ -135,7 +135,7 @@ export interface AjunaERC20Interface extends Interface {
   decodeFunctionResult(functionFragment: "allowance", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "approve", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "balanceOf", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "burn", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "burnFrom", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "decimals", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "getRoleAdmin",
@@ -321,7 +321,7 @@ export interface AjunaERC20 extends BaseContract {
 
   balanceOf: TypedContractMethod<[account: AddressLike], [bigint], "view">;
 
-  burn: TypedContractMethod<
+  burnFrom: TypedContractMethod<
     [from: AddressLike, amount: BigNumberish],
     [void],
     "nonpayable"
@@ -413,7 +413,7 @@ export interface AjunaERC20 extends BaseContract {
     nameOrSignature: "balanceOf"
   ): TypedContractMethod<[account: AddressLike], [bigint], "view">;
   getFunction(
-    nameOrSignature: "burn"
+    nameOrSignature: "burnFrom"
   ): TypedContractMethod<
     [from: AddressLike, amount: BigNumberish],
     [void],

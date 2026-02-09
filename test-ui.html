@@ -300,8 +300,12 @@
             <input type="text" id="wrapperAddress" placeholder="0x..." />
           </div>
           <div class="input-group">
-            <label>ERC20 Address:</label>
+            <label>ERC20 (wAJUN) Address:</label>
             <input type="text" id="erc20Address" placeholder="0x..." />
+          </div>
+          <div class="input-group">
+            <label>Foreign Asset Address:</label>
+            <input type="text" id="foreignAssetAddress" placeholder="0x... (precompile or mock)" value="0x0000000000000000000000000000000000000400" />
           </div>
           <button onclick="loadContracts()">Load Contracts</button>
         </div>
@@ -320,6 +324,15 @@
           >
             <div class="balance-label">Wrapped ERC20 Balance</div>
             <div class="balance-value" id="erc20Balance">0</div>
+          </div>
+          <div
+            class="balance-display"
+            style="
+              background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            "
+          >
+            <div class="balance-label">Treasury Locked (Invariant)</div>
+            <div class="balance-value" id="treasuryBalance">0</div>
           </div>
           <button onclick="refreshBalances()">🔄 Refresh Balances</button>
         </div>
@@ -369,7 +382,8 @@
         "0x99b3c12287537e38c90a9219d4cb074a89a16e9cdb20bf85728ebd97c343e342";
       const ALICE_KEY =
         "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
-      const FOREIGN_ASSET_ADDRESS =
+      // Foreign asset address — overridden from the UI input field
+      let FOREIGN_ASSET_ADDRESS =
         "0x0000000000000000000000000000000000000400";
 
       // Global state
@@ -386,11 +400,12 @@
       ];
 
       const WRAPPER_ABI = [
-        "function wrap(uint256 amount)",
-        "function unwrap(uint256 amount)",
-        "function erc20Token() view returns (address)",
-        "event Wrapped(address indexed user, uint256 amount)",
-        "event Unwrapped(address indexed user, uint256 amount)",
+        "function deposit(uint256 amount)",
+        "function withdraw(uint256 amount)",
+        "function token() view returns (address)",
+        "function foreignAsset() view returns (address)",
+        "event Deposited(address indexed user, uint256 amount)",
+        "event Withdrawn(address indexed user, uint256 amount)",
       ];
 
       // Initialize
@@ -483,6 +498,9 @@
           const wrapperAddr = document.getElementById("wrapperAddress").value;
           const erc20Addr = document.getElementById("erc20Address").value;
 
+          const foreignAddr = document.getElementById("foreignAssetAddress").value || FOREIGN_ASSET_ADDRESS;
+          FOREIGN_ASSET_ADDRESS = foreignAddr;
+
           if (!wrapperAddr || !erc20Addr) {
             log("Please enter both contract addresses", "error");
             return;
@@ -495,7 +513,7 @@
           );
           erc20Contract = new ethers.Contract(erc20Addr, ERC20_ABI, signer);
           foreignAssetContract = new ethers.Contract(
-            FOREIGN_ASSET_ADDRESS,
+            foreignAddr,
             ERC20_ABI,
             signer,
           );
@@ -518,10 +536,20 @@
           const foreignBal = await foreignAssetContract.balanceOf(address);
           const erc20Bal = await erc20Contract.balanceOf(address);
 
+          // Also fetch treasury locked balance for invariant display
+          let treasuryBal = 0;
+          try {
+            treasuryBal = await foreignAssetContract.balanceOf(
+              wrapperContract.address
+            );
+          } catch (_) {}
+
           document.getElementById("foreignBalance").textContent =
             ethers.utils.formatEther(foreignBal);
           document.getElementById("erc20Balance").textContent =
             ethers.utils.formatEther(erc20Bal);
+          document.getElementById("treasuryBalance").textContent =
+            ethers.utils.formatEther(treasuryBal);
 
           log("Balances refreshed", "info");
         } catch (error) {
@@ -563,10 +591,10 @@
           const amount = document.getElementById("wrapAmount").value;
           const amountWei = ethers.utils.parseEther(amount);
 
-          log(`Wrapping ${amount} tokens...`, "info");
-          const tx = await wrapperContract.wrap(amountWei);
+          log(`Wrapping ${amount} tokens (deposit)...`, "info");
+          const tx = await wrapperContract.deposit(amountWei);
           await tx.wait();
-          log("Wrap successful! ✅", "success");
+          log("Deposit successful! ✅", "success");
           await refreshBalances();
         } catch (error) {
           log(`Wrap failed: ${error.message}`, "error");
@@ -607,10 +635,10 @@
           const amount = document.getElementById("unwrapAmount").value;
           const amountWei = ethers.utils.parseEther(amount);
 
-          log(`Unwrapping ${amount} tokens...`, "info");
-          const tx = await wrapperContract.unwrap(amountWei);
+          log(`Unwrapping ${amount} tokens (withdraw)...`, "info");
+          const tx = await wrapperContract.withdraw(amountWei);
           await tx.wait();
-          log("Unwrap successful! ✅", "success");
+          log("Withdraw successful! ✅", "success");
           await refreshBalances();
         } catch (error) {
           log(`Unwrap failed: ${error.message}`, "error");

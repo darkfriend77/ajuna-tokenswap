@@ -16,4 +16,12 @@ fi
 echo "Deploying contracts using Ignition..."
 npx hardhat ignition deploy ./ignition/modules/AjunaWrapper.ts --network polkadotTestnet
 
+echo ""
 echo "=== Deployment Complete ==="
+echo ""
+echo "⚠️  POST-DEPLOYMENT CHECKLIST:"
+echo "  1. Send 1–2 DOT to the AjunaWrapper address as Existential Deposit"
+echo "     to prevent the account from being reaped by the Polkadot runtime."
+echo "  2. Transfer DEFAULT_ADMIN_ROLE on AjunaERC20 to a multisig/governance address."
+echo "  3. Renounce DEFAULT_ADMIN_ROLE from the deployer account."
+echo "  4. Verify contract addresses and test a small wrap/unwrap cycle."

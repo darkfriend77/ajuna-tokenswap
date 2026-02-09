@@ -22,25 +22,17 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    hasura: {
-      url: "http://127.0.0.1:8545",
-      accounts: ["0x99b3c12287537e38c90a9219d4cb074a89a16e9cdb20bf85728ebd97c343e342"], // Alice private key default in substrate dev
-      timeout: 60000,
-    },
-    local: { 
+    local: {
         url: "http://127.0.0.1:8545",
         chainId: 420420420,
         accounts: ["0x99b3c12287537e38c90a9219d4cb074a89a16e9cdb20bf85728ebd97c343e342"],
         gasPrice: 50000000000, // 50 gwei (matches base fee)
         gas: 6000000,
+        timeout: 60000,
     },
     polkadotTestnet: {
-        url: 'https://westend-asset-hub-eth-rpc.polkadot.io', // Using Westend Asset Hub ETH RPC
-        chainId: 420420421, // Westend Asset Hub Chain ID (Check docs if 420420417 is correct for generic "testnet" or specific one)
-        // HardHatEVM.md suggested 420420417 and https://services.polkadothub-rpc.com/testnet
-        // We will stick to the one from the doc user provided 'HardHatEVM.md' to be safe:
-        // url: 'https://services.polkadothub-rpc.com/testnet',
-        // chainId: 420420417,
+        url: 'https://services.polkadothub-rpc.com/testnet',
+        chainId: 420420417, // Polkadot Hub TestNet per official docs
         accounts: [PRIVATE_KEY],
     }
   },
