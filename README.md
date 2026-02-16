@@ -12,6 +12,25 @@ This project implements a treasury-based token wrapper that:
 - Includes a pausable circuit breaker, token rescue, and upgradeable foreign asset address
 - **UUPS proxy upgradeability** — both contracts can be upgraded without migrating state
 
+## ⚠️ Production Blocker — Foreign Assets ERC20 Precompile
+
+> **Status: Blocked on upstream PR — [paritytech/polkadot-sdk#10869](https://github.com/paritytech/polkadot-sdk/pull/10869)**
+
+The Polkadot AssetHub runtime currently does **not** expose an ERC20 precompile for **Foreign Assets** (`pallet_assets::Instance2`). Only TrustBacked assets (prefix `0x0120`) and Pool assets (prefix `0x0320`) have ERC20 precompiles wired up.
+
+AJUN is registered on AssetHub as a Foreign Asset (keyed by `xcm::v5::Location`), but the existing `InlineAssetIdExtractor` only handles `u32` asset IDs — it cannot encode a variable-length `Location` into 4 bytes.
+
+**PR [#10869](https://github.com/paritytech/polkadot-sdk/pull/10869)** adds a `ForeignAssetIdExtractor` that creates a `Location → u32` index mapping, enabling:
+```rust
+ERC20<Self, ForeignAssetIdConfig<0x220>, ForeignAssetsInstance>
+```
+
+**Impact on this project:**
+- All Solidity contracts are complete and tested against a mock ERC20 (which matches the precompile's IERC20 interface exactly)
+- **No code changes required** once the upstream PR is merged and deployed to AssetHub
+- The `IERC20Precompile` address will become a deterministic precompile address instead of a deployed mock contract
+- Tracked in: [#1](https://github.com/darkfriend77/ajuna-tokenswap/issues/1)
+
 ## Architecture
 
 ```
