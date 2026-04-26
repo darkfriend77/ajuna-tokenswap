@@ -279,6 +279,12 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, PausableUpgrade
      *         alarm, since that is the only path that puts user funds at risk.
      */
     function isInvariantHealthy() external view nonReentrantView returns (bool) {
+        // The strict equality is intentional — this view answers "is the
+        // backing exactly 1:1 right now?". Off-chain monitors that need
+        // direction should call `isUnderCollateralized()` (see ATS-12 fix
+        // below). Slither flags strict equality as `incorrect-equality`;
+        // the suppression below is the audit-acknowledged baseline.
+        // slither-disable-next-line incorrect-equality
         return token.totalSupply() == foreignAsset.balanceOf(address(this));
     }
 

@@ -1,5 +1,7 @@
 # Ajuna Tokenswap
 
+[![CI](https://github.com/10igma/ajuna-tokenswap/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/10igma/ajuna-tokenswap/actions/workflows/ci.yml)
+
 A smart contract system to transform AJUN Foreign Assets into ERC20 tokens (wAJUN) on Polkadot AssetHub using `pallet-revive`.
 
 ## Overview
