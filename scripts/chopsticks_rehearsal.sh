@@ -56,6 +56,7 @@ echo "Running rehearsal (this takes ~$((ADMIN_DELAY_SECS + 30))s)..."
 echo ""
 
 # ── Run the TS rehearsal via hardhat ───────────────────────────────────
-# `--network local` matches the eth-rpc adapter on 127.0.0.1:8545 (chain
-# id 420420420 — same as Asset Hub mainnet).
+# `--network chopsticks` matches the eth-rpc adapter on 127.0.0.1:8545
+# with the forked Polkadot Asset Hub mainnet chain id 420420419 (NOT
+# 420420420, which is the local revive-dev-node's id).
 npx hardhat run scripts/chopsticks_rehearsal.ts --network chopsticks

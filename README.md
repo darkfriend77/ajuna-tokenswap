@@ -114,7 +114,7 @@ The project is configured in `hardhat.config.ts` with three networks plus the de
 | `hardhat` (default) | — | In-memory testing |
 | `local` | 420420420 | Local `revive-dev-node` |
 | `polkadotTestnet` | 420420417 | Polkadot Hub TestNet |
-| `polkadotMainnet` | 420420420 | Polkadot AssetHub Production |
+| `polkadotMainnet` | 420420419 | Polkadot AssetHub Production |
 
 ## Testing
 
@@ -361,8 +361,9 @@ To add the Polkadot AssetHub network to MetaMask:
 | Field | Local Dev Node | Polkadot Hub TestNet | Polkadot AssetHub (Production) |
 |-------|---------------|---------------------|-------------------------------|
 | Network Name | AssetHub Local | AssetHub TestNet | Polkadot AssetHub |
-| RPC URL | `http://127.0.0.1:8545` | `https://services.polkadothub-rpc.com/testnet` | `https://polkadot-asset-hub-eth-rpc.polkadot.io` |
-| Chain ID | `420420420` | `420420417` | `420420420` |
+| RPC URL | `http://127.0.0.1:8545` | `https://services.polkadothub-rpc.com/testnet` | `https://eth-rpc.polkadot.io/` |
+| Chain ID | `420420420` | `420420417` | `420420419` |
+| Block Explorer | n/a | n/a | `https://blockscout.polkadot.io/` |
 | Currency Symbol | `DOT` | `DOT` | `DOT` |
 
 ### Developer Testing UI (`frontend/test-ui.html`)

@@ -8,7 +8,8 @@ It is deliberately procedural. Follow it top to bottom.
 
 - Network: `polkadotMainnet`
 - Chain: Polkadot Asset Hub
-- EVM RPC: `https://polkadot-asset-hub-eth-rpc.polkadot.io`
+- EVM RPC: `https://eth-rpc.polkadot.io/` (Parity-hosted; chain ID **420420419**)
+- Block explorer: `https://blockscout.polkadot.io/`
 - WS RPC: `wss://polkadot-asset-hub-rpc.polkadot.io`
 - Runtime version observed when AJUN precompile was verified: `2002001`
 - AJUN MultiLocation: `{ parents: 1, interior: { X1: [{ Parachain: 2051 }] } }`
@@ -84,6 +85,19 @@ npx ts-node scripts/lookup_ajun_asset.ts
   - The reported precompile address is `0x0000002d00000000000000000000000002200000`.
 
 - [ ] If the output differs, stop and use the live output as ground truth.
+
+- [ ] Verify the canonical EVM RPC is reachable and returns the expected chain ID:
+
+```bash
+curl -sS -X POST https://eth-rpc.polkadot.io/ \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'
+```
+
+  Expected: `{"jsonrpc":"2.0","id":1,"result":"0x190f1b43"}` (= 420420419).
+  If the chain ID returned is anything else, **stop**: it means the
+  `polkadotMainnet.chainId` in `hardhat.config.ts` is out of date and
+  `deploy_production.sh` will fail at signing time with `HardhatError HH101`.
 
 ## Phase 3: Optional Dry Run On Fork
 

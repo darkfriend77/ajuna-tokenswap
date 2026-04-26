@@ -72,8 +72,12 @@ const config: HardhatUserConfig = {
         accounts: [PRIVATE_KEY],
     },
     polkadotMainnet: {
-        url: 'https://polkadot-asset-hub-eth-rpc.polkadot.io',
-        chainId: 420420420, // Polkadot AssetHub Mainnet
+        // Canonical Polkadot Asset Hub mainnet eth-RPC (Parity-hosted).
+        // Verified via `eth_chainId` against the live endpoint: 420420419.
+        // Block explorer: https://blockscout.polkadot.io/
+        // Substrate WSS:  wss://polkadot-asset-hub-rpc.polkadot.io
+        url: 'https://eth-rpc.polkadot.io/',
+        chainId: 420420419,
         accounts: [PRIVATE_KEY],
     }
   },
