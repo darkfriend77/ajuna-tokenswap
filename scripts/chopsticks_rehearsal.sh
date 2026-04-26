@@ -58,4 +58,4 @@ echo ""
 # ── Run the TS rehearsal via hardhat ───────────────────────────────────
 # `--network local` matches the eth-rpc adapter on 127.0.0.1:8545 (chain
 # id 420420420 — same as Asset Hub mainnet).
-npx hardhat run scripts/chopsticks_rehearsal.ts --network local
+npx hardhat run scripts/chopsticks_rehearsal.ts --network chopsticks

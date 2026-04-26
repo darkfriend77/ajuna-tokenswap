@@ -85,9 +85,15 @@ has shifted since the audit and you must investigate before proceeding.
 
 The script:
 - Verifies both ports are reachable.
-- Invokes `npx hardhat run scripts/chopsticks_rehearsal.ts --network local`.
+- Invokes `npx hardhat run scripts/chopsticks_rehearsal.ts --network chopsticks`.
 - Prints a phase-by-phase progress log.
 - Exits 0 on success, 1 on any failure with a `✗ REHEARSAL FAILED` line.
+
+> **Note on the `chopsticks` Hardhat network**: same RPC URL as `local`
+> (`http://127.0.0.1:8545`) but `chainId: 420420419` — the chain ID the
+> eth-rpc adapter reports against forked Asset Hub mainnet. The `local`
+> network is for the pure `revive-dev-node` (chainId `420420420`); they
+> are not interchangeable.
 
 ### Expected output (last lines)
 
