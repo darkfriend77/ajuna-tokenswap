@@ -13,6 +13,59 @@ forked mainnet, the same code+flow will pass against the real mainnet
 deploy. **Run this immediately before any mainnet deploy** and any time
 the AJUN runtime configuration changes.
 
+## ⚠ Known limitation: Chopsticks vs. EthSetOrigin (Phases 3+ skipped today)
+
+The current Polkadot Asset Hub mainnet runtime uses a `EthSetOrigin`
+signed extension to route the H160 → AccountId mapping at the
+fee-payment layer for `pallet-revive` EVM transactions. Chopsticks
+does not yet recognise this extension and treats it as a no-op:
+
+```
+REGISTRY: Unknown signed extensions AuthorizeCall, EthSetOrigin,
+StorageWeightReclaim found, treating them as no-effect
+```
+
+With `EthSetOrigin` disabled, every EVM transaction Chopsticks sees
+fails substrate-side payment validation with
+`{"invalid":{"payment":null}}` (`InvalidTransaction::Payment`),
+regardless of how the deployer is funded. **This is an upstream
+Chopsticks limitation, not a contract bug.**
+
+### What still gets verified
+
+Phases 0-2 produce real, valuable verification:
+
+- ✓ Mainnet eth-RPC URL is correct (`https://eth-rpc.polkadot.io/`)
+- ✓ Mainnet chain ID is correct (`420420419`)
+- ✓ AJUN precompile reachable at the recorded address
+- ✓ Precompile `decimals()` returns 12
+- ✓ Precompile `totalSupply()` is readable
+- ✓ `dev_setStorage` funding pattern (DOT + AJUN) takes effect
+
+### How to complete end-to-end verification today
+
+1. **Contract logic** is independently verified by the 112 Hardhat
+   unit tests + audit PoC regression tests in `test/audit/`:
+   ```bash
+   npx hardhat test
+   npx --yes @openzeppelin/upgrades-core validate artifacts/build-info
+   ```
+2. **PVM bytecode + gas behaviour** — run `./scripts/e2e_local.sh`
+   against `revive-dev-node`.
+3. **Real-precompile interaction at deploy time** — rely on
+   [PRODUCTION-CHECKLIST.md](PRODUCTION-CHECKLIST.md) **Phase 7**:
+   mainnet smoke test under the allowlist gate. Only the deployer +
+   explicitly-allowlisted testers can interact, so the operational
+   risk is bounded.
+
+### When the full rehearsal will work again
+
+When Chopsticks adds support for `EthSetOrigin` (and the other new
+signed extensions), or when an alternative forking tool that handles
+the current Polkadot Asset Hub signed-extension set is adopted. The
+rehearsal script will run all 11 phases automatically once that
+happens — no further changes needed.
+
 ## What it does
 
 The rehearsal automates 11 phases:
