@@ -9,8 +9,11 @@
  *   2. ERC1967Proxy pointing to the implementation, with initialize() calldata
  *
  * Env vars:
- *   FOREIGN_ASSET  — Foreign asset address (required)
- *   DECIMALS       — Token decimals (default: 12)
+ *   FOREIGN_ASSET    — Foreign asset address (required)
+ *   DECIMALS         — Token decimals (default: 12)
+ *   ADMIN_DELAY_SECS — Two-step DEFAULT_ADMIN_ROLE transfer delay in seconds.
+ *                      Default: 432000 (5 days). Use 0 for tests / fast
+ *                      Chopsticks rehearsals.
  *
  * Usage:
  *   FOREIGN_ASSET=0x... npx hardhat run scripts/deploy_wrapper.ts --network local
@@ -48,10 +51,12 @@ async function main() {
   }
 
   const decimals = parseInt(process.env.DECIMALS || "12", 10);
+  const adminDelaySecs = parseInt(process.env.ADMIN_DELAY_SECS || "432000", 10); // 5 days
   const [deployer] = await ethers.getSigners();
   console.log("Deployer:", deployer.address);
   console.log("Foreign Asset:", foreignAssetAddress);
   console.log("Decimals:", decimals);
+  console.log("Default-admin transfer delay:", adminDelaySecs, "seconds");
 
   // 1. Deploy AjunaERC20 (behind UUPS proxy)
   const TokenFactory = await ethers.getContractFactory("AjunaERC20");
@@ -60,6 +65,7 @@ async function main() {
     "WAJUN",
     deployer.address,
     decimals,
+    adminDelaySecs,
   ]);
   const tokenAddr = await token.getAddress();
   console.log("AjunaERC20 proxy deployed at:", tokenAddr);

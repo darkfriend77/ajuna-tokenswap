@@ -2,19 +2,27 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /**
  * @title AjunaERC20
  * @notice Wrapped representation of the AJUN Foreign Asset as an ERC20 token on Polkadot AssetHub.
- * @dev UUPS-upgradeable. Uses OpenZeppelin AccessControl for role-gated minting and burning.
- *      Only accounts with MINTER_ROLE (intended: the AjunaWrapper treasury) can mint or burn.
- *      Burning requires prior ERC20 approval from the token holder (standard burnFrom pattern).
- *      Upgrades are restricted to accounts with UPGRADER_ROLE.
+ * @dev UUPS-upgradeable. Uses `AccessControlDefaultAdminRulesUpgradeable` so the
+ *      `DEFAULT_ADMIN_ROLE` follows a two-step transfer with a configurable
+ *      delay — the same typo-resistance the wrapper gets from
+ *      `Ownable2StepUpgradeable`. There is exactly one `DEFAULT_ADMIN_ROLE`
+ *      holder at any time; transfer requires `beginDefaultAdminTransfer`
+ *      from the current admin and `acceptDefaultAdminTransfer` from the
+ *      proposed admin after the configured delay.
+ *
+ *      Only accounts with `MINTER_ROLE` (intended: the `AjunaWrapper` treasury)
+ *      can mint or burn. Burning requires prior ERC20 approval from the token
+ *      holder (standard `burnFrom` pattern). Upgrades are restricted to accounts
+ *      with `UPGRADER_ROLE`.
  */
-contract AjunaERC20 is Initializable, ERC20Upgradeable, AccessControlUpgradeable, UUPSUpgradeable {
+contract AjunaERC20 is Initializable, ERC20Upgradeable, AccessControlDefaultAdminRulesUpgradeable, UUPSUpgradeable {
     /// @notice Role identifier for accounts permitted to mint and burn tokens.
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
@@ -31,22 +39,26 @@ contract AjunaERC20 is Initializable, ERC20Upgradeable, AccessControlUpgradeable
 
     /**
      * @notice Initializes the wrapped AJUN ERC20 token (called once via proxy).
-     * @param name_     Token name (e.g. "Wrapped Ajuna").
-     * @param symbol_   Token symbol (e.g. "WAJUN").
-     * @param admin     Address that receives DEFAULT_ADMIN_ROLE and UPGRADER_ROLE.
-     * @param decimals_ Number of decimals — must match the native AJUN asset (typically 12).
+     * @param name_              Token name (e.g. "Wrapped Ajuna").
+     * @param symbol_            Token symbol (e.g. "WAJUN").
+     * @param admin              Address that receives `DEFAULT_ADMIN_ROLE` and `UPGRADER_ROLE`.
+     * @param decimals_          Number of decimals — must match the native AJUN asset (typically 12).
+     * @param initialAdminDelay  Delay (in seconds) between
+     *                           `beginDefaultAdminTransfer` and the time
+     *                           `acceptDefaultAdminTransfer` can be successfully
+     *                           called. Production: ~5 days (432000). Tests: 0.
      */
     function initialize(
         string memory name_,
         string memory symbol_,
         address admin,
-        uint8 decimals_
+        uint8 decimals_,
+        uint48 initialAdminDelay
     ) public initializer {
         require(admin != address(0), "AjunaERC20: admin is zero address");
         require(decimals_ <= 18, "AjunaERC20: decimals exceed 18");
         __ERC20_init(name_, symbol_);
-        __AccessControl_init();
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        __AccessControlDefaultAdminRules_init(initialAdminDelay, admin);
         _grantRole(UPGRADER_ROLE, admin);
         _tokenDecimals = decimals_;
     }
@@ -88,6 +100,9 @@ contract AjunaERC20 is Initializable, ERC20Upgradeable, AccessControlUpgradeable
 
     /**
      * @dev Reserved storage gap for future base contract upgrades.
+     *      `AccessControlDefaultAdminRulesUpgradeable` adds its own state at a
+     *      separate ERC-7201 namespaced slot, not in this gap. Same gap budget
+     *      as before (49 slots, 1 used by `_tokenDecimals`).
      */
     uint256[49] private __gap;
 }

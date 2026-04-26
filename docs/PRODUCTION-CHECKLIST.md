@@ -205,20 +205,79 @@ Target invariant:
 wAJUN.totalSupply() == AJUN.balanceOf(wrapper)
 ```
 
-## Phase 8: Admin Handoff
+## Phase 8: Admin Handoff (Two-Step + Delayed)
 
-Do not leave long-term admin control on the deployer EOA.
+Do not leave long-term admin control on the deployer EOA. Both contracts now
+use two-step transfers (Wrapper: `Ownable2Step`; ERC20: `AccessControlDefaultAdminRules`)
+specifically so a typo or wrong-but-valid address cannot become irreversible.
 
-- [ ] Grant `DEFAULT_ADMIN_ROLE` on `AjunaERC20` to multisig.
-- [ ] Grant `UPGRADER_ROLE` on `AjunaERC20` to multisig.
-- [ ] Transfer `AjunaWrapper` ownership to multisig.
-- [ ] Verify the multisig can perform expected admin reads or dry-run calls.
+### 8A. AjunaERC20 — start the delayed admin transfer
 
-## Phase 9: Deployer Privilege Removal
+- [ ] Deployer grants `UPGRADER_ROLE` to multisig (single-step, immediate):
 
-- [ ] Renounce deployer `DEFAULT_ADMIN_ROLE` on `AjunaERC20`.
-- [ ] Renounce deployer `UPGRADER_ROLE` on `AjunaERC20`.
-- [ ] Confirm wrapper ownership no longer belongs to deployer.
+```text
+token.grantRole(UPGRADER_ROLE, <multisig>)
+```
+
+- [ ] Deployer **starts** the `DEFAULT_ADMIN_ROLE` transfer:
+
+```text
+token.beginDefaultAdminTransfer(<multisig>)
+```
+
+This sets a pending admin and starts a delay timer (production: 5 days /
+432000 seconds, configured via `ADMIN_DELAY_SECS` at deploy time). The
+deployer remains `DEFAULT_ADMIN_ROLE` holder until the multisig accepts.
+
+- [ ] Verify `token.pendingDefaultAdmin().newAdmin == <multisig>`.
+
+### 8B. AjunaWrapper — start the two-step ownership transfer
+
+- [ ] Deployer initiates wrapper ownership transfer:
+
+```text
+wrapper.transferOwnership(<multisig>)
+```
+
+This emits `OwnershipTransferStarted` and sets `pendingOwner`. The deployer
+retains `owner()` until the multisig accepts.
+
+- [ ] Verify `wrapper.pendingOwner() == <multisig>`.
+
+### 8C. (If a typo is detected) cancel either transfer
+
+- [ ] On the ERC20: `token.cancelDefaultAdminTransfer()`.
+- [ ] On the wrapper: re-call `wrapper.transferOwnership(<correct address>)` (or `address(0)` to clear).
+
+## Phase 9: Multisig Acceptance & Deployer Privilege Removal
+
+After the configured delay has elapsed (production: ≥5 days for the ERC20):
+
+### 9A. Multisig accepts both transfers
+
+- [ ] Multisig calls `wrapper.acceptOwnership()`.
+- [ ] Multisig calls `token.acceptDefaultAdminTransfer()`.
+- [ ] Verify `wrapper.owner() == <multisig>` and `token.defaultAdmin() == <multisig>`.
+
+### 9B. Deployer renounces remaining role
+
+- [ ] Deployer renounces `UPGRADER_ROLE` on `AjunaERC20`:
+
+```text
+token.renounceRole(UPGRADER_ROLE, <deployer>)
+```
+
+(`DEFAULT_ADMIN_ROLE` was already moved to the multisig atomically in
+Phase 9A — no separate renunciation needed.)
+
+- [ ] Confirm `wrapper.owner()` is the multisig and the deployer holds no roles on the ERC20.
+
+### 9C. Optional invariant: wrapper.owner() == ERC20.defaultAdmin()
+
+- [ ] Verify `wrapper.owner() == token.defaultAdmin()`. The contracts do not
+      enforce this coupling, but it is the recommended state — divergence
+      enables partial privilege escalation. Set up an off-chain monitor for
+      the inverted condition.
 
 ## Phase 10: Frontend and Ops Update
 
