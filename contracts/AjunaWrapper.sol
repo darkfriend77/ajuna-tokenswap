@@ -37,8 +37,10 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
     ///         change via UUPS upgrade if the precompile address ever changes.
     IERC20Precompile public foreignAsset;
 
-    /// @notice Whether the allowlist gate is enforced on `deposit` / `withdraw`.
-    ///         When `true`, only `owner()` and addresses in `allowlisted` can swap.
+    /// @notice Whether the allowlist gate is enforced on `deposit`.
+    ///         When `true`, only `owner()` and addresses in `allowlisted` may
+    ///         deposit. `withdraw` is **never** gated by the allowlist —
+    ///         redemption is a user right and cannot be revoked by the owner.
     ///         Defaults to `true` on `initialize()` for safe staged rollout;
     ///         flip to `false` (single tx) to open the contract to everyone.
     bool public allowlistEnabled;
@@ -92,11 +94,16 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
     // ──────────────────────────────────────────────
 
     /**
-     * @dev Restricts `deposit` / `withdraw` to allowlisted accounts when
-     *      `allowlistEnabled` is `true`. The current `owner()` is always
-     *      allowed, regardless of `allowlistEnabled` or mapping contents,
-     *      so the owner can never be locked out (e.g. for seeding AJUN dust
-     *      on first-deploy per the production checklist).
+     * @dev Restricts `deposit` to allowlisted accounts when `allowlistEnabled`
+     *      is `true`. The current `owner()` is always allowed, regardless of
+     *      `allowlistEnabled` or mapping contents, so the owner can never be
+     *      locked out (e.g. for seeding AJUN dust on first-deploy per the
+     *      production checklist).
+     *
+     *      `withdraw` does **not** use this modifier — redemption is a user
+     *      right and remains permissionless even while the gate is on. Pause
+     *      remains the system-wide circuit breaker if a temporary halt of
+     *      redemption is required for an emergency.
      *
      *      When `allowlistEnabled` is `false`, the modifier is a no-op and
      *      the contract behaves like an open ERC20 wrapper.
@@ -121,6 +128,11 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
         emit AllowlistUpdated(account, allowed);
     }
 
+    /// @notice Maximum entries per `setAllowlistBatch` call. Caps the
+    ///         per-tx weight on `pallet-revive` so a large batch can never
+    ///         partially execute then revert against the block weight bound.
+    uint256 public constant MAX_ALLOWLIST_BATCH = 100;
+
     /**
      * @notice Bulk add or remove accounts in a single transaction. Owner-only.
      * @dev    Useful during initial onboarding of a tester cohort. All entries
@@ -128,6 +140,7 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
      *         if you need a mixed update.
      */
     function setAllowlistBatch(address[] calldata accounts, bool allowed) external onlyOwner {
+        require(accounts.length <= MAX_ALLOWLIST_BATCH, "AjunaWrapper: batch too large");
         for (uint256 i = 0; i < accounts.length; i++) {
             address account = accounts[i];
             require(account != address(0), "AjunaWrapper: account is zero address");
@@ -149,18 +162,26 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
     function deposit(uint256 amount) external nonReentrant whenNotPaused onlyAllowedUser {
         require(amount > 0, "Amount must be > 0");
 
-        // 1. Pull Foreign Assets from user into treasury (SafeERC20: reverts on
+        // 1. Snapshot the wrapper's foreign-asset balance before the pull, so
+        //    we mint exactly what the treasury actually received. This is a
+        //    no-op against the current AJUN precompile (a standard ERC20
+        //    that moves `amount` exactly), but defends against any future
+        //    foreign-asset semantics with fee-on-transfer or rebasing.
+        IERC20 fa = IERC20(address(foreignAsset));
+        uint256 balanceBefore = fa.balanceOf(address(this));
+
+        // 2. Pull Foreign Assets from user into treasury (SafeERC20: reverts on
         //    missing-return-value tokens or tokens that return false silently).
-        IERC20(address(foreignAsset)).safeTransferFrom(
-            msg.sender,
-            address(this),
-            amount
-        );
+        fa.safeTransferFrom(msg.sender, address(this), amount);
 
-        // 2. Mint equivalent wAJUN to user
-        token.mint(msg.sender, amount);
+        uint256 received = fa.balanceOf(address(this)) - balanceBefore;
+        require(received > 0, "AjunaWrapper: zero received");
 
-        emit Deposited(msg.sender, amount);
+        // 3. Mint exactly the received amount of wAJUN. Preserves the 1:1
+        //    backing invariant even if `received < amount`.
+        token.mint(msg.sender, received);
+
+        emit Deposited(msg.sender, received);
     }
 
     /**
@@ -170,7 +191,7 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
      *      Flow: token.burnFrom(user) → foreignAsset.transfer(treasury → user)
      * @param amount Amount of wAJUN to unwrap (in smallest unit).
      */
-    function withdraw(uint256 amount) external nonReentrant whenNotPaused onlyAllowedUser {
+    function withdraw(uint256 amount) external nonReentrant whenNotPaused {
         require(amount > 0, "Amount must be > 0");
         require(
             token.balanceOf(msg.sender) >= amount,

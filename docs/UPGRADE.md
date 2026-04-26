@@ -281,6 +281,33 @@ number of slots used. The `__gap` exists purely to reserve room for future
 **derived-contract** state — it does not pad inherited base contracts (those
 are already isolated by their namespaces).
 
+### Upgrade-time defaults for new derived state
+
+When a UUPS upgrade adds new derived-contract variables, those variables
+read as **zero / default** on first access — the proxy's `__gap` slots
+that the new variables now occupy were never written. `initialize()` does
+not run on an upgrade (the `initializer` modifier blocks re-entry), so any
+non-zero default the new code expects must be explicitly written via a
+`reinitializer(N)` migration function:
+
+```solidity
+function migrateToVN() external reinitializer(N) onlyOwner {
+    // Set non-zero defaults for any new state variables.
+    allowlistEnabled = true;
+    emit AllowlistEnabledUpdated(true);
+}
+```
+
+Then call `proxy.upgradeToAndCall(newImpl, abi.encodeCall(this.migrateToVN, ()))`
+so the migration runs atomically with the upgrade. If you do not, the new
+code's intended defaults will silently be the zero values — for boolean
+"safety on" defaults, this is exactly the wrong direction.
+
+This is informational for the current allowlist work — the production deploy
+is a fresh proxy, so `initialize()` runs and `allowlistEnabled = true` takes
+effect normally. The note is here for any future upgrade that adds similarly
+default-sensitive state.
+
 ---
 
 ## Testing Upgrades

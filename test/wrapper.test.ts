@@ -27,14 +27,15 @@ describe("AjunaWrapper System", function () {
     name: string,
     symbol: string,
     admin: string,
-    decimals: number
+    decimals: number,
+    initialAdminDelay: number = 0
   ): Promise<AjunaERC20> {
     const Factory = await ethers.getContractFactory("AjunaERC20");
     const impl = await Factory.deploy();
     await impl.waitForDeployment();
 
     const initData = Factory.interface.encodeFunctionData("initialize", [
-      name, symbol, admin, decimals,
+      name, symbol, admin, decimals, initialAdminDelay,
     ]);
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
     const proxy = await ProxyFactory.deploy(await impl.getAddress(), initData);
@@ -118,7 +119,7 @@ describe("AjunaWrapper System", function () {
       await impl.waitForDeployment();
 
       const initData = Factory.interface.encodeFunctionData("initialize", [
-        "Test", "TST", ZERO_ADDRESS, 12,
+        "Test", "TST", ZERO_ADDRESS, 12, 0,
       ]);
       const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
       await expect(
@@ -132,7 +133,7 @@ describe("AjunaWrapper System", function () {
       await impl.waitForDeployment();
 
       const initData = Factory.interface.encodeFunctionData("initialize", [
-        "Test", "TST", owner.address, 19,
+        "Test", "TST", owner.address, 19, 0,
       ]);
       const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
       await expect(
@@ -416,7 +417,7 @@ describe("AjunaWrapper System", function () {
   describe("UUPS Upgradeability", function () {
     it("should prevent re-initialization of AjunaERC20", async function () {
       await expect(
-        token.initialize("Hack", "HACK", user.address, 18)
+        token.initialize("Hack", "HACK", user.address, 18, 0)
       ).to.be.reverted;
     });
 
@@ -505,7 +506,7 @@ describe("AjunaWrapper System", function () {
 
       // Implementation has _disableInitializers() in constructor
       await expect(
-        impl.initialize("Hack", "HACK", user.address, 18)
+        impl.initialize("Hack", "HACK", user.address, 18, 0)
       ).to.be.reverted;
     });
 
@@ -1014,18 +1015,43 @@ describe("AjunaWrapper System", function () {
         .to.be.revertedWith("AjunaWrapper: not allowlisted");
     });
 
-    it("should gate withdraw the same way as deposit", async function () {
-      // Allowlist user, deposit, then revoke and try to withdraw
+    it("should NOT gate withdraw — redemption is permissionless even with allowlist on (MED-1)", async function () {
+      // 1. Allowlist user, deposit, then revoke their allowlist entry.
       await wrapper.connect(owner).setAllowlist(user.address, true);
       await foreignAssetMock.connect(user).approve(await wrapper.getAddress(), amount);
       await wrapper.connect(user).deposit(amount);
 
-      // Revoke the allowlist entry
+      // 2. Revoke. User should still be able to withdraw — the gate applies to
+      //    deposit only. This is the MED-1 fix: redemption is a user right.
       await wrapper.connect(owner).setAllowlist(user.address, false);
+      expect(await wrapper.allowlistEnabled()).to.be.true;
+      expect(await wrapper.allowlisted(user.address)).to.be.false;
 
+      // Withdraw succeeds.
       await token.connect(user).approve(await wrapper.getAddress(), amount);
-      await expect(wrapper.connect(user).withdraw(amount))
+      await wrapper.connect(user).withdraw(amount);
+      expect(await foreignAssetMock.balanceOf(user.address)).to.equal(INITIAL_SUPPLY);
+      expect(await token.balanceOf(user.address)).to.equal(0);
+
+      // But further deposit IS still blocked.
+      await foreignAssetMock.connect(user).approve(await wrapper.getAddress(), amount);
+      await expect(wrapper.connect(user).deposit(amount))
         .to.be.revertedWith("AjunaWrapper: not allowlisted");
+    });
+
+    it("should let any holder withdraw even if allowlist was never extended to them", async function () {
+      // Owner deposits and transfers wAJUN to a non-allowlisted user. That
+      // user must still be able to redeem.
+      await foreignAssetMock.connect(owner).mint(owner.address, amount);
+      await foreignAssetMock.connect(owner).approve(await wrapper.getAddress(), amount);
+      await wrapper.connect(owner).deposit(amount);
+
+      await token.connect(owner).transfer(user2.address, amount);
+      expect(await wrapper.allowlisted(user2.address)).to.be.false;
+
+      await token.connect(user2).approve(await wrapper.getAddress(), amount);
+      await wrapper.connect(user2).withdraw(amount);
+      expect(await foreignAssetMock.balanceOf(user2.address)).to.equal(INITIAL_SUPPLY + amount);
     });
 
     it("should be a no-op when disabled — anyone can deposit and withdraw", async function () {
@@ -1200,6 +1226,160 @@ describe("AjunaWrapper System", function () {
       expect(await foreignAssetMock.balanceOf(await wrapper.getAddress())).to.be.gt(
         await token.totalSupply()
       );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  Fee-on-transfer Defense (LOW-1)
+  // ═══════════════════════════════════════════════════════════
+
+  describe("Fee-on-transfer Defense", function () {
+    it("should mint exactly the received amount when foreign asset takes a fee on transfer", async function () {
+      // Deploy a wrapper pointed at a fee-taking foreign asset.
+      const Fot = await ethers.getContractFactory("FeeOnTransferERC20");
+      const fot = await Fot.deploy();
+      await fot.waitForDeployment();
+
+      const fotWrapper = await deployWrapperProxy(
+        await token.getAddress(),
+        await fot.getAddress()
+      );
+      await token.grantRole(await token.MINTER_ROLE(), await fotWrapper.getAddress());
+      await fotWrapper.connect(owner).setAllowlistEnabled(false);
+
+      const input = ethers.parseUnits("100", DECIMALS);
+      const expectedReceived = input * 9000n / 10_000n; // 10% fee
+
+      await fot.mintTo(user.address, input);
+      await fot.connect(user).approve(await fotWrapper.getAddress(), input);
+
+      // Without LOW-1: would mint `input` while treasury received only 90% of it
+      // -> under-collateralized. With LOW-1: mints exactly what was received.
+      await expect(fotWrapper.connect(user).deposit(input))
+        .to.emit(fotWrapper, "Deposited")
+        .withArgs(user.address, expectedReceived);
+
+      expect(await token.balanceOf(user.address)).to.equal(expectedReceived);
+      expect(await fot.balanceOf(await fotWrapper.getAddress())).to.equal(expectedReceived);
+
+      // Invariant holds — wrapper not under-collateralized.
+      expect(await fotWrapper.isInvariantHealthy()).to.be.true;
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  Allowlist Batch Cap (INFO-4)
+  // ═══════════════════════════════════════════════════════════
+
+  describe("Allowlist Batch Cap", function () {
+    it("should reject setAllowlistBatch with more than MAX_ALLOWLIST_BATCH entries", async function () {
+      const max = await wrapper.MAX_ALLOWLIST_BATCH();
+      // Build an array one bigger than the cap
+      const oversized: string[] = [];
+      for (let i = 0; i < Number(max) + 1; i++) {
+        oversized.push(ethers.Wallet.createRandom().address);
+      }
+      await expect(wrapper.connect(owner).setAllowlistBatch(oversized, true))
+        .to.be.revertedWith("AjunaWrapper: batch too large");
+    });
+
+    it("should accept setAllowlistBatch with exactly MAX_ALLOWLIST_BATCH entries", async function () {
+      const max = await wrapper.MAX_ALLOWLIST_BATCH();
+      const atCap: string[] = [];
+      for (let i = 0; i < Number(max); i++) {
+        atCap.push(ethers.Wallet.createRandom().address);
+      }
+      await wrapper.connect(owner).setAllowlistBatch(atCap, true);
+      // Spot-check first and last got added
+      expect(await wrapper.allowlisted(atCap[0])).to.be.true;
+      expect(await wrapper.allowlisted(atCap[atCap.length - 1])).to.be.true;
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  AccessControlDefaultAdminRules Admin Handoff (MED-2)
+  // ═══════════════════════════════════════════════════════════
+
+  describe("Admin Handoff (Default Admin Rules)", function () {
+    // Initial-admin delay was set to 0 by deployERC20Proxy — accept can be
+    // called immediately, but the two-step protection (cancellable until
+    // accept) still applies.
+
+    it("exposes the standard Default Admin Rules surface", async function () {
+      expect(await token.defaultAdmin()).to.equal(owner.address);
+      expect(await token.defaultAdminDelay()).to.equal(0);
+      const pending = await token.pendingDefaultAdmin();
+      expect(pending.newAdmin).to.equal(ZERO_ADDRESS);
+    });
+
+    it("requires beginDefaultAdminTransfer + acceptDefaultAdminTransfer (no single-step grantRole)", async function () {
+      const DEFAULT_ADMIN_ROLE = await token.DEFAULT_ADMIN_ROLE();
+
+      // Direct grantRole(DEFAULT_ADMIN_ROLE, ...) is blocked by the new rules.
+      await expect(token.connect(owner).grantRole(DEFAULT_ADMIN_ROLE, user.address)).to.be.reverted;
+
+      // Two-step transfer: begin from old admin, accept from new admin.
+      await token.connect(owner).beginDefaultAdminTransfer(user.address);
+      const pending = await token.pendingDefaultAdmin();
+      expect(pending.newAdmin).to.equal(user.address);
+      expect(await token.defaultAdmin()).to.equal(owner.address); // unchanged
+
+      await token.connect(user).acceptDefaultAdminTransfer();
+      expect(await token.defaultAdmin()).to.equal(user.address);
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, user.address)).to.be.true;
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, owner.address)).to.be.false;
+    });
+
+    it("allows the current admin to cancel a pending transfer (typo recovery)", async function () {
+      await token.connect(owner).beginDefaultAdminTransfer(user.address);
+      expect((await token.pendingDefaultAdmin()).newAdmin).to.equal(user.address);
+
+      // Owner spots the typo and cancels.
+      await token.connect(owner).cancelDefaultAdminTransfer();
+      expect((await token.pendingDefaultAdmin()).newAdmin).to.equal(ZERO_ADDRESS);
+
+      // The not-quite-pending account can no longer accept.
+      await expect(token.connect(user).acceptDefaultAdminTransfer()).to.be.reverted;
+
+      // Original admin retains control.
+      expect(await token.defaultAdmin()).to.equal(owner.address);
+    });
+
+    it("blocks an unintended account from accepting", async function () {
+      await token.connect(owner).beginDefaultAdminTransfer(user.address);
+      // user2 is not the pending admin
+      await expect(token.connect(user2).acceptDefaultAdminTransfer()).to.be.reverted;
+    });
+
+    it("requires a two-step renunciation of DEFAULT_ADMIN_ROLE (begin → accept with newAdmin == 0)", async function () {
+      // renounceRole(DEFAULT_ADMIN_ROLE, ...) on its own should not finalize
+      // immediately — the rules contract requires the two-step flow even for
+      // renunciation. (This is the "exactly one admin holder at all times"
+      // invariant — direct renunciation would leave zero admins.)
+      const DEFAULT_ADMIN_ROLE = await token.DEFAULT_ADMIN_ROLE();
+      await expect(token.connect(owner).renounceRole(DEFAULT_ADMIN_ROLE, owner.address)).to.be.reverted;
+
+      // Proper "renounce": begin transfer to address(0), then accept.
+      await token.connect(owner).beginDefaultAdminTransfer(ZERO_ADDRESS);
+      // For zero-address admin, OZ uses renounceRole + the schedule check.
+      await token.connect(owner).renounceRole(DEFAULT_ADMIN_ROLE, owner.address);
+
+      expect(await token.defaultAdmin()).to.equal(ZERO_ADDRESS);
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, owner.address)).to.be.false;
+    });
+
+    it("does not affect MINTER_ROLE / UPGRADER_ROLE single-step grant flow", async function () {
+      const MINTER_ROLE = await token.MINTER_ROLE();
+      const UPGRADER_ROLE = await token.UPGRADER_ROLE();
+
+      // Other roles still grant/revoke in one tx by the DEFAULT_ADMIN_ROLE holder.
+      await token.connect(owner).grantRole(MINTER_ROLE, user.address);
+      expect(await token.hasRole(MINTER_ROLE, user.address)).to.be.true;
+      await token.connect(owner).revokeRole(MINTER_ROLE, user.address);
+      expect(await token.hasRole(MINTER_ROLE, user.address)).to.be.false;
+
+      await token.connect(owner).grantRole(UPGRADER_ROLE, user.address);
+      expect(await token.hasRole(UPGRADER_ROLE, user.address)).to.be.true;
     });
   });
 });

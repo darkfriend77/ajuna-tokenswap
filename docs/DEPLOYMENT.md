@@ -107,7 +107,7 @@ No deployment needed — Hardhat's in-memory EVM handles everything:
 npx hardhat test
 ```
 
-All 81 tests run against mock contracts, including UUPS proxy deployment patterns.
+All 91 tests run against mock contracts, including UUPS proxy deployment patterns.
 
 ---
 
@@ -339,11 +339,29 @@ async function deployProxy(implFactory, initArgs, initFunction = "initialize") {
 
 ```
 1. Deploy AjunaERC20 implementation
-2. Deploy ERC1967Proxy → AjunaERC20.initialize("Wrapped Ajuna", "WAJUN", deployer, 12)
+2. Deploy ERC1967Proxy → AjunaERC20.initialize("Wrapped Ajuna", "WAJUN", deployer, 12, 432000)
 3. Deploy AjunaWrapper implementation
 4. Deploy ERC1967Proxy → AjunaWrapper.initialize(erc20Proxy, foreignAsset)
 5. Grant MINTER_ROLE on AjunaERC20 proxy to AjunaWrapper proxy
 ```
+
+The fifth argument to `AjunaERC20.initialize` is `initialAdminDelay` in
+seconds — the two-step `DEFAULT_ADMIN_ROLE` transfer delay enforced by
+`AccessControlDefaultAdminRulesUpgradeable`. Production deploys default to
+432000 (5 days); local tests / Chopsticks rehearsals can pass `0` via
+`ADMIN_DELAY_SECS=0`.
+
+### Race window between Step 4 and Step 5
+
+There is a brief window between the wrapper proxy being live (Step 4) and
+the wrapper holding `MINTER_ROLE` (Step 5). A user calling `deposit` in
+this window would see the `mint` step revert with `AccessControlUnauthorizedAccount`,
+and the entire transaction reverts atomically — no funds are stuck or stolen,
+but the user pays gas for a failed tx. This window is **closed by the
+allowlist gate**: `allowlistEnabled = true` is set on `initialize`, so only
+the deployer (implicit owner short-circuit) can attempt `deposit` until
+explicit allowlist grants are made. The race window is therefore not a
+production concern.
 
 ### Environment Variables
 

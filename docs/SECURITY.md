@@ -75,39 +75,76 @@ For detailed upgrade procedures, see [UPGRADE.md](UPGRADE.md).
 
 ## Access Control: AjunaERC20
 
-AjunaERC20 uses OpenZeppelin's `AccessControlUpgradeable` with three roles:
+AjunaERC20 uses OpenZeppelin's **`AccessControlDefaultAdminRulesUpgradeable`**
+with three roles. The `DEFAULT_ADMIN_ROLE` follows a two-step transfer with
+a configurable delay (typo-resistant); `MINTER_ROLE` and `UPGRADER_ROLE` use
+the standard single-step `grantRole` / `revokeRole` flow.
 
 ### Roles
 
 | Role | Hash | Granted To | Permissions |
 |------|------|-----------|-------------|
-| `DEFAULT_ADMIN_ROLE` | `0x00` | Deployer (initially) | Grant/revoke any role |
+| `DEFAULT_ADMIN_ROLE` | `0x00` | Exactly one address (deployer initially) | Grant/revoke `MINTER_ROLE` / `UPGRADER_ROLE`. **Transfer is two-step with a delay.** |
 | `MINTER_ROLE` | `keccak256("MINTER_ROLE")` | AjunaWrapper proxy | `mint()`, `burnFrom()` |
 | `UPGRADER_ROLE` | `keccak256("UPGRADER_ROLE")` | Deployer (initially) | `upgradeTo()`, `upgradeToAndCall()` |
 
 ### Key Design Decisions
 
-- **The deployer does NOT receive `MINTER_ROLE`** — only the Wrapper can mint and burn
-- **`DEFAULT_ADMIN_ROLE`** is the admin for all roles — it can grant/revoke `MINTER_ROLE` and `UPGRADER_ROLE`
-- **Role hierarchy**: `DEFAULT_ADMIN_ROLE` → manages → `MINTER_ROLE`, `UPGRADER_ROLE`
+- **The deployer does NOT receive `MINTER_ROLE`** — only the Wrapper can mint and burn.
+- **`DEFAULT_ADMIN_ROLE`** is the admin for all roles — it can grant/revoke `MINTER_ROLE` and `UPGRADER_ROLE`.
+- **Role hierarchy**: `DEFAULT_ADMIN_ROLE` → manages → `MINTER_ROLE`, `UPGRADER_ROLE`.
+- **Exactly one `DEFAULT_ADMIN_ROLE` holder at all times** — the rules contract enforces this. There is never an interregnum where role management is impossible due to a half-finished transfer.
+
+### Two-Step `DEFAULT_ADMIN_ROLE` Transfer
+
+The `DEFAULT_ADMIN_ROLE` is the highest-impact role on the ERC20 (it can grant `MINTER_ROLE` to anyone, breaking the 1:1 backing). To prevent typo-irreversibility — exactly the failure mode the wrapper avoids via `Ownable2Step` — the contract uses OZ's `AccessControlDefaultAdminRulesUpgradeable`. Transfer is a two-step flow with a delay:
+
+```solidity
+// Step 1 (current admin): propose transfer. Optionally cancellable.
+token.beginDefaultAdminTransfer(newAdmin);
+
+// (wait for `defaultAdminDelay()` seconds — production deploy sets ~5 days)
+
+// Step 2 (proposed admin): accept. Atomic, in a single tx by the new admin.
+token.acceptDefaultAdminTransfer();
+```
+
+If the current admin spots a typo before the new admin accepts:
+
+```solidity
+token.cancelDefaultAdminTransfer();
+```
+
+`grantRole(DEFAULT_ADMIN_ROLE, ...)` and direct `renounceRole(DEFAULT_ADMIN_ROLE, ...)` are blocked by the rules contract — they would bypass the two-step flow and the exactly-one-admin invariant.
+
+The initial delay is set in `initialize()` (5 days for production via `ADMIN_DELAY_SECS=432000` in the deploy script; 0 for local tests).
 
 ### Post-Deployment Role Transfer
 
-For production, the deployer should:
-1. Grant `DEFAULT_ADMIN_ROLE` to a multisig
-2. Grant `UPGRADER_ROLE` to a multisig
-3. Renounce `DEFAULT_ADMIN_ROLE` from deployer
-4. Renounce `UPGRADER_ROLE` from deployer
+For production:
+1. **Grant `UPGRADER_ROLE` to the multisig** (single-step, immediate).
+2. **`beginDefaultAdminTransfer(multisig)` from the deployer** (starts the delay timer).
+3. **Wait for the configured delay** (e.g., 5 days).
+4. **Multisig calls `acceptDefaultAdminTransfer()`** — atomic transfer of `DEFAULT_ADMIN_ROLE`.
+5. **Renounce `UPGRADER_ROLE` from the deployer** (single-step from deployer).
 
 ```solidity
-// Transfer admin to multisig
-token.grantRole(DEFAULT_ADMIN_ROLE, multisigAddress);
+// Step 1: deployer grants UPGRADER to the multisig.
 token.grantRole(UPGRADER_ROLE, multisigAddress);
 
-// Renounce from deployer
-token.renounceRole(DEFAULT_ADMIN_ROLE, deployerAddress);
+// Step 2: deployer initiates the two-step admin handoff.
+token.beginDefaultAdminTransfer(multisigAddress);
+
+// (wait `defaultAdminDelay()` seconds — production: 5 days)
+
+// Step 3: multisig completes the handoff.
+token.connect(multisig).acceptDefaultAdminTransfer();
+
+// Step 4: deployer drops their no-longer-needed UPGRADER_ROLE.
 token.renounceRole(UPGRADER_ROLE, deployerAddress);
 ```
+
+The deployer never has a window where they can be locked out by a typo — `beginDefaultAdminTransfer` is reversible until `acceptDefaultAdminTransfer` lands, and the multisig must demonstrate it can sign a transaction by calling `acceptDefaultAdminTransfer` before the role moves.
 
 ---
 
@@ -216,7 +253,7 @@ wrapper.unpause();
 
 ## Initial Allowlist Gate
 
-The wrapper ships with an **owner-controlled allowlist** that gates `deposit()` and `withdraw()`. It exists so a fresh production deployment can be smoke-tested under real on-chain conditions before opening to the public.
+The wrapper ships with an **owner-controlled allowlist** that gates `deposit()` only. It exists so a fresh production deployment can be smoke-tested under real on-chain conditions before opening to the public. **`withdraw()` is never gated by the allowlist** — once a user holds wAJUN, redemption is permissionless and cannot be revoked by the owner.
 
 ### State
 
@@ -225,11 +262,13 @@ The wrapper ships with an **owner-controlled allowlist** that gates `deposit()` 
 | `allowlistEnabled` | `bool` | `true` |
 | `allowlisted` | `mapping(address => bool)` | empty |
 
-When `allowlistEnabled == true`, the `onlyAllowedUser` modifier on `deposit` / `withdraw` requires either:
+When `allowlistEnabled == true`, the `onlyAllowedUser` modifier on `deposit` requires either:
 1. `msg.sender == owner()` — implicitly always allowed, **regardless** of the mapping or the flag, OR
 2. `allowlisted[msg.sender] == true`.
 
-When `allowlistEnabled == false`, the modifier is a no-op and the wrapper behaves like an open ERC20 wrapper.
+When `allowlistEnabled == false`, the modifier is a no-op and `deposit` behaves as an open wrapper. `withdraw` does not consult the allowlist in either state — redemption is always permissionless.
+
+**Why deposit-only** — gating `withdraw` would create a censorship surface where the owner can freeze users' redemption rights post-deposit. The system already has a global circuit breaker (`pause()`) for emergencies; per-user redemption gating is unnecessary and qualitatively worse than denying entry. See [docs/REVIEW_v2.md MED-1](REVIEW_v2.md) for the full rationale.
 
 ### Owner Short-Circuit (Lock-Out Protection)
 
