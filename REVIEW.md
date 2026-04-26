@@ -315,6 +315,6 @@ Recommended sequence for the imminent mainnet rollout:
 2. ✅ Update + re-run the full test suite — done (61/61 passing).
 3. Deploy the patched implementation as the **fresh** wrapper (this is a fresh production deploy, not an upgrade of an existing live contract).
 4. Run a smoke test: `transferOwnership(testAddress)` → confirm `pendingOwner() == testAddress` and `owner()` unchanged → `acceptOwnership()` from `testAddress` → confirm transfer completes → transfer back. This validates the 2-step flow on production before handing control to the multisig.
-5. Proceed with [docs/PRODUCTION-CHECKLIST.md](docs/PRODUCTION-CHECKLIST.md) Phases 8–11. The multisig handoff itself now benefits from the 2-step protection.
+5. Proceed with [docs/PRODUCTION-CHECKLIST.md](docs/PRODUCTION-CHECKLIST.md) Phases 8–12. The multisig handoff itself now benefits from the 2-step protection. Phase 11 (Open To Public) flips the new allowlist gate off.
 
 The remaining open items (LOW-A: `SafeERC20` consistency in `deposit`/`withdraw`; INFO-A through INFO-E: operational concerns) are non-blocking for the production deploy and can be addressed in a follow-up upgrade if desired.

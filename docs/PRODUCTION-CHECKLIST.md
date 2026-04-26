@@ -144,6 +144,10 @@ These checks should happen before announcing the deployment as ready.
 - [ ] Confirm decimals are `12`.
 - [ ] Confirm the wrapper has `MINTER_ROLE` on the token.
 - [ ] Confirm all user-facing references use proxy addresses, not implementation addresses.
+- [ ] Confirm `wrapper.allowlistEnabled() == true`. The wrapper ships with the
+      allowlist gate ON by default — the deployer (and later the multisig
+      after `acceptOwnership`) is implicitly allowed; everyone else is
+      blocked from `deposit` / `withdraw` until added or the gate is opened.
 
 ## Phase 6: Existential Deposit Protection
 
@@ -170,7 +174,18 @@ balances.transferKeepAlive(dest: <wrapper_proxy>, value: 1_000_000_000)
 Suggested minimum operational seed:
 - `100` smallest AJUN units or whatever amount operations defines as permanent dust
 
-## Phase 7: Functional Verification
+## Phase 7: Functional Verification (Allowlist-Gated)
+
+The allowlist gate is still ON at this point. Smoke-test on production
+under the gate so unrelated wallets cannot interact while you verify.
+
+- [ ] Add the operator (or designated tester) accounts to the allowlist:
+
+```text
+wrapper.setAllowlist(<tester>, true)
+// or for a cohort:
+wrapper.setAllowlistBatch([<tester1>, <tester2>, ...], true)
+```
 
 - [ ] Run a small wrap/unwrap verification on production.
 
@@ -212,7 +227,21 @@ Do not leave long-term admin control on the deployer EOA.
 - [ ] Update operational runbooks with proxy addresses, tx hashes, and multisig ownership status.
 - [ ] Store final addresses somewhere durable.
 
-## Phase 11: Final Sign-Off
+## Phase 11: Open To Public
+
+Only execute once all prior phases are green and the multisig is comfortable.
+
+- [ ] Multisig calls `wrapper.setAllowlistEnabled(false)` on production.
+- [ ] Confirm event `AllowlistEnabledUpdated(false)` emitted in the tx receipt.
+- [ ] Confirm an external (non-allowlisted) test account can now `deposit`.
+- [ ] Announce.
+
+If anything goes wrong post-launch, multisig can re-gate immediately
+with `setAllowlistEnabled(true)`. This is reversible and strictly more
+surgical than `pause()` — useful for blocking individual addresses
+later via `setAllowlist(target, false)` without freezing legitimate users.
+
+## Phase 12: Final Sign-Off
 
 Only mark production ready when all items below are true.
 
@@ -220,11 +249,12 @@ Only mark production ready when all items below are true.
 - [ ] Contracts deployed successfully.
 - [ ] Proxy addresses recorded.
 - [ ] Wrapper funded with native DOT for ED safety.
-- [ ] Wrapper seeded with permanent AJUN dust.
-- [ ] Production wrap/unwrap smoke test passed.
+- [ ] Wrapper seeded with permanent AJUN dust (under allowlist).
+- [ ] Production wrap/unwrap smoke test passed (under allowlist).
 - [ ] Admin roles moved to multisig.
 - [ ] Deployer privileges removed.
 - [ ] Frontend and operational config updated.
+- [ ] Allowlist gate disabled by multisig — production is open to public.
 
 ## Abort Conditions
 

@@ -12,6 +12,7 @@ This document describes the security features, access control model, threat miti
 - [Access Control: AjunaWrapper](#access-control-ajunawrapper)
 - [Reentrancy Protection](#reentrancy-protection)
 - [Pausable Circuit Breaker](#pausable-circuit-breaker)
+- [Initial Allowlist Gate](#initial-allowlist-gate)
 - [Token Rescue](#token-rescue)
 - [The Mint-and-Lock Invariant](#the-mint-and-lock-invariant)
 - [BurnFrom Approval Pattern](#burnfrom-approval-pattern)
@@ -210,6 +211,68 @@ wrapper.unpause();
 - Suspicious activity detected (e.g., unusual large wraps/unwraps)
 - Foreign asset precompile change pending — pause, update address, unpause
 - During a planned contract upgrade
+
+---
+
+## Initial Allowlist Gate
+
+The wrapper ships with an **owner-controlled allowlist** that gates `deposit()` and `withdraw()`. It exists so a fresh production deployment can be smoke-tested under real on-chain conditions before opening to the public.
+
+### State
+
+| Variable | Type | Default after `initialize()` |
+|----------|------|------------------------------|
+| `allowlistEnabled` | `bool` | `true` |
+| `allowlisted` | `mapping(address => bool)` | empty |
+
+When `allowlistEnabled == true`, the `onlyAllowedUser` modifier on `deposit` / `withdraw` requires either:
+1. `msg.sender == owner()` — implicitly always allowed, **regardless** of the mapping or the flag, OR
+2. `allowlisted[msg.sender] == true`.
+
+When `allowlistEnabled == false`, the modifier is a no-op and the wrapper behaves like an open ERC20 wrapper.
+
+### Owner Short-Circuit (Lock-Out Protection)
+
+The current `owner()` is implicitly always allowed to `deposit` / `withdraw`. Concretely:
+
+- The owner can never be locked out, even if the allowlist mapping is empty.
+- Calling `setAllowlist(owner, false)` has no effect on the owner's ability to swap — the modifier short-circuits before reading the mapping.
+- After a multisig handoff, the moment the multisig calls `acceptOwnership()`, it gains immediate `deposit` / `withdraw` access without needing a separate `setAllowlist(multisig, true)` transaction. This is what enables Phase 6B (seeding AJUN dust) to be executed by the multisig directly.
+- The previously-current owner loses this implicit privilege as soon as the new owner accepts; it tracks `owner()`, not a snapshot.
+
+### Owner-Only Functions
+
+| Function | Effect |
+|----------|--------|
+| `setAllowlistEnabled(bool)` | Flip the gate on or off |
+| `setAllowlist(address, bool)` | Add or remove a single account |
+| `setAllowlistBatch(address[], bool)` | Bulk add or bulk remove |
+
+All three revert when called by a non-owner. `setAllowlist` and `setAllowlistBatch` reject `address(0)`.
+
+### Going Public
+
+After Phase 7 verification on production succeeds, opening the wrapper to everyone is a single transaction:
+
+```solidity
+wrapper.setAllowlistEnabled(false);
+```
+
+This is reversible — calling it again with `true` re-restricts immediately, so the gate doubles as a fine-grained "soft pause" for surgical interventions (e.g. blocking a flagged address) without freezing the whole system the way `pause()` does.
+
+### Trust Model
+
+The owner can re-enable the allowlist after going public. This is intentional and is strictly less powerful than capabilities the owner already has (`pause`, `_authorizeUpgrade`). If a stronger guarantee of "permanently permissionless" is desired, deploy a UUPS upgrade to an implementation that hard-codes `allowlistEnabled = false` and removes the setters — but this trades a low-risk operational lever for a UUPS upgrade event, which is the highest-risk operation in the system.
+
+### Scope
+
+The allowlist gate only applies to `deposit` and `withdraw` on the wrapper. It does **not** restrict:
+
+- ERC20 transfers / approvals on the wAJUN token (those follow the standard ERC20 semantics on the AjunaERC20 contract)
+- View functions on either contract
+- Owner-only admin functions (already access-controlled)
+
+A non-allowlisted account can still hold and transfer wAJUN that someone else minted for them — it just cannot mint new wAJUN or unwrap existing wAJUN until either it gets allowlisted or the gate is disabled.
 
 ---
 

@@ -37,12 +37,27 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
     ///         change via UUPS upgrade if the precompile address ever changes.
     IERC20Precompile public foreignAsset;
 
+    /// @notice Whether the allowlist gate is enforced on `deposit` / `withdraw`.
+    ///         When `true`, only `owner()` and addresses in `allowlisted` can swap.
+    ///         Defaults to `true` on `initialize()` for safe staged rollout;
+    ///         flip to `false` (single tx) to open the contract to everyone.
+    bool public allowlistEnabled;
+
+    /// @notice Per-account allowlist consulted only when `allowlistEnabled == true`.
+    ///         The current `owner()` is implicitly always allowed regardless of
+    ///         this mapping, so the owner cannot be locked out.
+    mapping(address => bool) public allowlisted;
+
     /// @notice Emitted when a user wraps Foreign AJUN into wAJUN.
     event Deposited(address indexed user, uint256 amount);
     /// @notice Emitted when a user unwraps wAJUN back into Foreign AJUN.
     event Withdrawn(address indexed user, uint256 amount);
     /// @notice Emitted when the owner rescues accidentally sent tokens.
     event TokenRescued(address indexed tokenAddress, address indexed to, uint256 amount);
+    /// @notice Emitted when the global allowlist gate is toggled.
+    event AllowlistEnabledUpdated(bool enabled);
+    /// @notice Emitted when an account's allowlist entry is set or cleared.
+    event AllowlistUpdated(address indexed account, bool allowed);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -65,6 +80,60 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
         __Pausable_init();
         token = AjunaERC20(_token);
         foreignAsset = IERC20Precompile(_foreignAssetPrecompile);
+        // Allowlist gate is on by default for staged rollout. The owner is
+        // implicitly always allowed (see `onlyAllowedUser`), so no explicit
+        // entry is needed at init time.
+        allowlistEnabled = true;
+        emit AllowlistEnabledUpdated(true);
+    }
+
+    // ──────────────────────────────────────────────
+    //  Allowlist Gate (initial deploy only — flip off when going public)
+    // ──────────────────────────────────────────────
+
+    /**
+     * @dev Restricts `deposit` / `withdraw` to allowlisted accounts when
+     *      `allowlistEnabled` is `true`. The current `owner()` is always
+     *      allowed, regardless of `allowlistEnabled` or mapping contents,
+     *      so the owner can never be locked out (e.g. for seeding AJUN dust
+     *      on first-deploy per the production checklist).
+     *
+     *      When `allowlistEnabled` is `false`, the modifier is a no-op and
+     *      the contract behaves like an open ERC20 wrapper.
+     */
+    modifier onlyAllowedUser() {
+        if (allowlistEnabled && msg.sender != owner()) {
+            require(allowlisted[msg.sender], "AjunaWrapper: not allowlisted");
+        }
+        _;
+    }
+
+    /// @notice Toggle the allowlist gate. Owner-only.
+    function setAllowlistEnabled(bool enabled) external onlyOwner {
+        allowlistEnabled = enabled;
+        emit AllowlistEnabledUpdated(enabled);
+    }
+
+    /// @notice Add or remove a single account from the allowlist. Owner-only.
+    function setAllowlist(address account, bool allowed) external onlyOwner {
+        require(account != address(0), "AjunaWrapper: account is zero address");
+        allowlisted[account] = allowed;
+        emit AllowlistUpdated(account, allowed);
+    }
+
+    /**
+     * @notice Bulk add or remove accounts in a single transaction. Owner-only.
+     * @dev    Useful during initial onboarding of a tester cohort. All entries
+     *         are set to the same `allowed` value; call twice (true / false)
+     *         if you need a mixed update.
+     */
+    function setAllowlistBatch(address[] calldata accounts, bool allowed) external onlyOwner {
+        for (uint256 i = 0; i < accounts.length; i++) {
+            address account = accounts[i];
+            require(account != address(0), "AjunaWrapper: account is zero address");
+            allowlisted[account] = allowed;
+            emit AllowlistUpdated(account, allowed);
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -77,7 +146,7 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
      *      Flow: foreignAsset.transferFrom(user → treasury) → token.mint(user)
      * @param amount Amount of Foreign AJUN to wrap (in smallest unit).
      */
-    function deposit(uint256 amount) external nonReentrant whenNotPaused {
+    function deposit(uint256 amount) external nonReentrant whenNotPaused onlyAllowedUser {
         require(amount > 0, "Amount must be > 0");
 
         // 1. Pull Foreign Assets from user into treasury
@@ -101,7 +170,7 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
      *      Flow: token.burnFrom(user) → foreignAsset.transfer(treasury → user)
      * @param amount Amount of wAJUN to unwrap (in smallest unit).
      */
-    function withdraw(uint256 amount) external nonReentrant whenNotPaused {
+    function withdraw(uint256 amount) external nonReentrant whenNotPaused onlyAllowedUser {
         require(amount > 0, "Amount must be > 0");
         require(
             token.balanceOf(msg.sender) >= amount,
@@ -179,6 +248,8 @@ contract AjunaWrapper is Initializable, Ownable2StepUpgradeable, ReentrancyGuard
 
     /**
      * @dev Reserved storage gap for future base contract upgrades.
+     *      Started at 48; consumed 2 slots for `allowlistEnabled` (bool) and
+     *      `allowlisted` (mapping). Remaining: 46.
      */
-    uint256[48] private __gap;
+    uint256[46] private __gap;
 }
