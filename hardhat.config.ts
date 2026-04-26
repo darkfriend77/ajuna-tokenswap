@@ -35,6 +35,11 @@ const config: HardhatUserConfig = {
         url: 'https://services.polkadothub-rpc.com/testnet',
         chainId: 420420417, // Polkadot Hub TestNet per official docs
         accounts: [PRIVATE_KEY],
+    },
+    polkadotMainnet: {
+        url: 'https://polkadot-asset-hub-eth-rpc.polkadot.io',
+        chainId: 420420420, // Polkadot AssetHub Mainnet
+        accounts: [PRIVATE_KEY],
     }
   },
 };
